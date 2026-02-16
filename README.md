@@ -101,6 +101,7 @@ Test it at [webcamtests.com](https://webcamtests.com) in **any browser** — Fir
 10. Installs PipeWire fixup script (creates V4L2 SPA node + portal permissions)
 11. Configures udev rules to hide raw IPU6 nodes from applications
 12. Sets up module auto-loading (`/etc/modules-load.d/ipu6-camera.conf`)
+13. Installs tray toggle utility (`ipu6-camera-tray`) with desktop autostart
 
 ## Manual Setup
 
@@ -217,6 +218,49 @@ The camera should now be visible in browsers as "Integrated Camera".
 | `ipu6-pipewire-fixup` | PipeWire V4L2 node + portal permissions (runs after service starts) |
 | `firefox-pipewire-camera.js` | Firefox autoconfig pref to enable PipeWire camera |
 | `99-hide-ipu6-raw.rules` | udev rule to hide raw IPU6 nodes from apps |
+| `ipu6-camera-tray` | System tray toggle utility (yad-based) |
+| `ipu6-camera-tray.desktop` | Desktop file for app launcher + autostart |
+
+## Tray Toggle Utility
+
+A system tray applet (`ipu6-camera-tray`) lets you toggle the camera on/off without using the terminal.
+
+### Features
+
+- **Left-click**: Toggle camera on/off (prompts for password via polkit)
+- **Right-click menu**: Toggle, Settings, Status, Quit
+- **Dynamic icon**: Filled camera icon when active, symbolic (grey) when inactive
+- **Auto-start**: Starts automatically on login via `~/.config/autostart/`
+
+### Settings
+
+Right-click the tray icon and select **Settings** to:
+
+- **Change resolution**: Switch between 720p (1280x720) and 1080p (1920x1080). This updates the systemd service file and restarts the camera if active.
+- **Toggle auto-start**: Enable or disable the camera service starting on boot.
+
+### Status
+
+Right-click and select **Status** to view:
+
+- Service state (active/inactive)
+- Auto-start state (enabled/disabled)
+- Current resolution
+- PipeWire video node information
+- Camera portal availability
+
+### Manual Launch
+
+The tray utility is installed to `/usr/local/bin/ipu6-camera-tray` and auto-starts on login. To launch it manually:
+
+```bash
+ipu6-camera-tray
+```
+
+### Dependencies
+
+- `yad` (installed automatically by `setup.sh`)
+- `pkexec` (part of polkit, pre-installed on Ubuntu)
 
 ## Troubleshooting
 
