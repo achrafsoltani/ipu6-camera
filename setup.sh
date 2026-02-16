@@ -16,6 +16,7 @@
 #   7. Installs v4l2loopback (DKMS)
 #   8. Configures Firefox PipeWire camera support (about:config pref)
 #   9. Configures systemd service, udev rules, and module auto-loading
+#  10. Installs tray toggle utility (yad-based system tray applet)
 #
 # Usage:
 #   chmod +x setup.sh
@@ -107,6 +108,7 @@ apt-get install -y -qq \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
     gstreamer1.0-tools \
+    yad \
     > /dev/null
 
 log "Dependencies installed."
@@ -344,7 +346,7 @@ fi
 # Step 7: Configure module auto-loading
 # ==============================================================================
 
-log "Step 7/9: Configuring kernel modules and udev rules..."
+log "Step 7/10: Configuring kernel modules and udev rules..."
 
 # Auto-load modules on boot
 cat > /etc/modules-load.d/ipu6-camera.conf << 'EOF'
@@ -373,7 +375,7 @@ log "Module loading and udev rules configured."
 # Step 8: Configure Firefox PipeWire camera support
 # ==============================================================================
 
-log "Step 8/9: Configuring Firefox PipeWire camera support..."
+log "Step 8/10: Configuring Firefox PipeWire camera support..."
 
 # Firefox does not use PipeWire for camera access by default.
 # This autoconfig pref enables it so Firefox Snap can use the camera
@@ -410,7 +412,7 @@ log "Firefox PipeWire camera support configured."
 # Step 9: Install systemd service
 # ==============================================================================
 
-log "Step 9/9: Installing systemd service..."
+log "Step 9/10: Installing systemd service..."
 
 # Install PipeWire fixup script (restarts WirePlumber so Firefox detects the camera)
 cp "${SCRIPT_DIR}/ipu6-pipewire-fixup" /usr/local/bin/ipu6-pipewire-fixup
@@ -442,6 +444,32 @@ systemctl enable ipu6-camera-loopback.service
 log "Systemd service installed and enabled."
 
 # ==============================================================================
+# Step 10: Install tray toggle utility
+# ==============================================================================
+
+log "Step 10/10: Installing tray toggle utility..."
+
+# Install the tray script to PATH
+cp "${SCRIPT_DIR}/ipu6-camera-tray" /usr/local/bin/ipu6-camera-tray
+chmod +x /usr/local/bin/ipu6-camera-tray
+
+# Install desktop file for app launcher and autostart (per-user)
+REAL_USER="${SUDO_USER:-${USER}}"
+REAL_HOME=$(eval echo "~${REAL_USER}")
+
+DESKTOP_DIR="${REAL_HOME}/.local/share/applications"
+AUTOSTART_DIR="${REAL_HOME}/.config/autostart"
+mkdir -p "${DESKTOP_DIR}" "${AUTOSTART_DIR}"
+
+cp "${SCRIPT_DIR}/ipu6-camera-tray.desktop" "${DESKTOP_DIR}/"
+cp "${SCRIPT_DIR}/ipu6-camera-tray.desktop" "${AUTOSTART_DIR}/"
+chown "${REAL_USER}:${REAL_USER}" "${DESKTOP_DIR}/ipu6-camera-tray.desktop" "${AUTOSTART_DIR}/ipu6-camera-tray.desktop"
+
+update-desktop-database "${DESKTOP_DIR}" 2>/dev/null || true
+
+log "Tray utility installed. It will auto-start on login."
+
+# ==============================================================================
 # Done
 # ==============================================================================
 
@@ -453,7 +481,8 @@ echo ""
 echo "Next steps:"
 echo "  1. Reboot your machine"
 echo "  2. The camera will start automatically as 'Integrated Camera' on /dev/video99"
-echo "  3. Test at https://webcamtests.com in any browser (Firefox, Chrome, Brave, Edge)"
+echo "  3. Use the IPU6 Camera tray icon to toggle camera on/off and adjust settings"
+echo "  4. Test at https://webcamtests.com in any browser (Firefox, Chrome, Brave, Edge)"
 echo ""
 echo "Manual start (without reboot):"
 echo "  sudo modprobe usbio gpio-usbio i2c-usbio intel-ipu6-psys"
