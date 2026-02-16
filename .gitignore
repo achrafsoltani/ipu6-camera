@@ -1,0 +1,12 @@
+build/
+ipu6-camera-bins/
+ipu6-camera-hal/
+icamerasrc/
+ipu6-drivers/
+*.ko
+*.o
+*.mod
+*.mod.c
+Module.symvers
+modules.order
+CLAUDE.local.md

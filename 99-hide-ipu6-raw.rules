@@ -1,0 +1,4 @@
+# Hide raw IPU6 ISYS capture devices from applications
+# Remove user access so PipeWire/browsers can't enumerate them
+# The camera HAL runs as root (sudo) so it still has access
+SUBSYSTEM=="video4linux", ATTR{name}=="Intel IPU6 ISYS Capture *", MODE="0600", GROUP="root", TAG-="uaccess", TAG-="seat"

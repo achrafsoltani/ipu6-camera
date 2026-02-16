@@ -1,0 +1,15 @@
+[Unit]
+Description=IPU6 Integrated Camera to V4L2 Loopback
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+Environment=GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0
+ExecStartPre=/sbin/modprobe v4l2loopback video_nr=99 card_label="Integrated Camera" exclusive_caps=1
+ExecStart=/usr/bin/gst-launch-1.0 -e icamerasrc buffer-count=7 ! video/x-raw,format=NV12,width=1280,height=720 ! videoconvert ! video/x-raw,format=YUY2,width=1280,height=720,framerate=30/1 ! identity drop-allocation=true ! v4l2sink device=/dev/video99 sync=false
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
