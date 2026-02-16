@@ -267,6 +267,23 @@ The Camera HAL only supports specific resolutions. Known working:
 
 Other resolutions (e.g. native 3856x2416) may fail or produce corrupt output.
 
+### DKMS build fails on kernel update
+
+If a kernel update breaks the DKMS modules:
+
+```bash
+# Rebuild both modules for the new kernel
+sudo dkms autoinstall
+
+# Or rebuild individually
+sudo dkms build usbio/0.3
+sudo dkms install usbio/0.3
+sudo dkms build ipu6-drivers/0.0.0
+sudo dkms install ipu6-drivers/0.0.0
+```
+
+If the IPU6 PSYS build fails because of missing kernel headers, re-run `setup.sh` — it fetches the correct headers for the running kernel.
+
 ## Supported IPU6 Variants
 
 | Platform | Generation | PCI ID | HAL variant |
