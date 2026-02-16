@@ -3,10 +3,13 @@ ipu6-camera-bins/
 ipu6-camera-hal/
 icamerasrc/
 ipu6-drivers/
+usbio-drivers/
 *.ko
 *.o
 *.mod
 *.mod.c
 Module.symvers
 modules.order
+__pycache__/
+*.pyc
 CLAUDE.local.md
