@@ -89,19 +89,18 @@ Test it at [webcamtests.com](https://webcamtests.com) in **any browser** — Fir
 
 ## What the Setup Script Does
 
-1. Installs build dependencies (`build-essential`, `cmake`, `dkms`, GStreamer dev libs, etc.)
-2. Clones and builds [Intel USBIO drivers](https://github.com/intel/usbio-drivers) via DKMS
-3. Clones and builds [IPU6 PSYS module](https://github.com/intel/ipu6-drivers) via DKMS (fetches kernel headers from kernel.org)
-4. Installs [Camera HAL binaries](https://github.com/intel/ipu6-camera-bins) (firmware + proprietary ISP libraries)
-5. Builds [Intel Camera HAL](https://github.com/intel/ipu6-camera-hal) (`libcamhal`)
-6. Builds [icamerasrc](https://github.com/intel/icamerasrc) GStreamer plugin (branch: `icamerasrc_slim_api`)
-7. Installs `v4l2loopback-dkms` and configures it on `/dev/video99`
-8. Configures Firefox PipeWire camera support (`media.webrtc.camera.allow-pipewire`)
-9. Installs a systemd service (`ipu6-camera-loopback`) for automatic startup
-10. Installs PipeWire fixup script (creates V4L2 SPA node + portal permissions)
-11. Configures udev rules to hide raw IPU6 nodes from applications
-12. Sets up module auto-loading (`/etc/modules-load.d/ipu6-camera.conf`)
-13. Installs tray toggle utility (`ipu6-camera-tray`) with desktop autostart
+| Step | Description |
+|------|-------------|
+| 1 | Installs build dependencies (`build-essential`, `cmake`, `dkms`, GStreamer dev libs, `python3-gi`, etc.) |
+| 2 | Clones and builds [Intel USBIO drivers](https://github.com/intel/usbio-drivers) via DKMS |
+| 3 | Clones and builds [IPU6 PSYS module](https://github.com/intel/ipu6-drivers) via DKMS (fetches kernel headers from kernel.org) |
+| 4 | Installs [Camera HAL binaries](https://github.com/intel/ipu6-camera-bins) (firmware + proprietary ISP libraries) |
+| 5 | Builds [Intel Camera HAL](https://github.com/intel/ipu6-camera-hal) (`libcamhal`) |
+| 6 | Builds [icamerasrc](https://github.com/intel/icamerasrc) GStreamer plugin (branch: `icamerasrc_slim_api`) |
+| 7 | Configures kernel module auto-loading and udev rules |
+| 8 | Configures Firefox PipeWire camera support (`media.webrtc.camera.allow-pipewire`) |
+| 9 | Installs systemd service (`ipu6-camera-loopback`) with PipeWire fixup |
+| 10 | Installs system tray toggle utility (`ipu6-camera-tray`) with desktop autostart |
 
 ## Manual Setup
 
@@ -114,7 +113,8 @@ sudo apt install build-essential cmake dkms git pkg-config \
     linux-headers-$(uname -r) v4l2loopback-dkms libexpat1-dev \
     automake autoconf libtool libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base \
-    gstreamer1.0-plugins-good gstreamer1.0-tools
+    gstreamer1.0-plugins-good gstreamer1.0-tools \
+    gir1.2-ayatanaappindicator3-0.1 python3-gi
 ```
 
 ### 1. USBIO Drivers
@@ -218,49 +218,56 @@ The camera should now be visible in browsers as "Integrated Camera".
 | `ipu6-pipewire-fixup` | PipeWire V4L2 node + portal permissions (runs after service starts) |
 | `firefox-pipewire-camera.js` | Firefox autoconfig pref to enable PipeWire camera |
 | `99-hide-ipu6-raw.rules` | udev rule to hide raw IPU6 nodes from apps |
-| `ipu6-camera-tray` | System tray toggle utility (yad-based) |
+| `ipu6-camera-tray` | System tray toggle utility (Python, AppIndicator) |
 | `ipu6-camera-tray.desktop` | Desktop file for app launcher + autostart |
 
 ## Tray Toggle Utility
 
-A system tray applet (`ipu6-camera-tray`) lets you toggle the camera on/off without using the terminal.
+A system tray applet (`ipu6-camera-tray`) for managing the camera without the terminal. Built with Python 3 and AyatanaAppIndicator3 for native GNOME/Wayland support.
+
+![tray-on](https://img.shields.io/badge/ON-camera--video-green) ![tray-off](https://img.shields.io/badge/OFF-camera--video--symbolic-grey)
 
 ### Features
 
 - **Left-click**: Toggle camera on/off (prompts for password via polkit)
 - **Right-click menu**: Toggle, Settings, Status, Quit
-- **Dynamic icon**: Filled camera icon when active, symbolic (grey) when inactive
+- **Dynamic icon**: `camera-video` when active, `camera-video-symbolic` (grey) when inactive
 - **Auto-start**: Starts automatically on login via `~/.config/autostart/`
+- **Single instance**: File lock prevents duplicate processes
+- **Polling**: Icon updates every 5 seconds to reflect service state
 
-### Settings
+### Settings Dialog
 
-Right-click the tray icon and select **Settings** to:
+Right-click → **Settings** opens a GTK dialog to:
 
-- **Change resolution**: Switch between 720p (1280x720) and 1080p (1920x1080). This updates the systemd service file and restarts the camera if active.
-- **Toggle auto-start**: Enable or disable the camera service starting on boot.
+- **Resolution**: Switch between 720p (1280×720) and 1080p (1920×1080). Updates the systemd service file via `pkexec` and restarts the camera if active.
+- **Auto-start**: Enable or disable the camera service starting on boot (`systemctl enable/disable`).
 
-### Status
+### Status Dialog
 
-Right-click and select **Status** to view:
+Right-click → **Status** shows a read-only text view with:
 
 - Service state (active/inactive)
 - Auto-start state (enabled/disabled)
 - Current resolution
-- PipeWire video node information
-- Camera portal availability
+- PipeWire video node listing (`wpctl status`)
+- Camera portal availability (`IsCameraPresent`)
 
 ### Manual Launch
 
-The tray utility is installed to `/usr/local/bin/ipu6-camera-tray` and auto-starts on login. To launch it manually:
-
 ```bash
-ipu6-camera-tray
+ipu6-camera-tray &
 ```
 
 ### Dependencies
 
-- `gir1.2-ayatanaappindicator3-0.1` and `python3-gi` (installed automatically by `setup.sh`)
-- `pkexec` (part of polkit, pre-installed on Ubuntu)
+| Package | Purpose |
+|---------|---------|
+| `gir1.2-ayatanaappindicator3-0.1` | AppIndicator tray icon support |
+| `python3-gi` | GTK/GLib Python bindings |
+| `pkexec` | Graphical privilege escalation (pre-installed) |
+
+All dependencies are installed automatically by `setup.sh`.
 
 ## Troubleshooting
 
@@ -343,10 +350,16 @@ sudo GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0 gst-launch-1.0 -e \
 ### Wrong resolution / corrupt image
 
 The Camera HAL only supports specific resolutions. Known working:
-- **1280x720** (recommended, lower CPU usage)
-- **1920x1080**
+- **1280×720** (recommended, lower CPU usage)
+- **1920×1080**
 
-Other resolutions (e.g. native 3856x2416) may fail or produce corrupt output.
+Other resolutions (e.g. native 3856×2416) may fail or produce corrupt output.
+
+To switch resolution, use the tray utility (Settings dialog) or edit the service file manually:
+
+```bash
+sudo systemctl restart ipu6-camera-loopback
+```
 
 ### DKMS build fails on kernel update
 
@@ -364,6 +377,14 @@ sudo dkms install ipu6-drivers/0.0.0
 ```
 
 If the IPU6 PSYS build fails because of missing kernel headers, re-run `setup.sh` — it fetches the correct headers for the running kernel.
+
+### Tray icon not visible
+
+The tray utility requires `AppIndicator` support in your desktop environment:
+
+- **GNOME**: Install and enable the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) (pre-installed on Ubuntu as `ubuntu-appindicators`)
+- **KDE/XFCE**: AppIndicator support is built-in
+- **Verify**: `gnome-extensions show ubuntu-appindicators@ubuntu.com` should show `State: ACTIVE`
 
 ## Supported IPU6 Variants
 
@@ -391,14 +412,10 @@ dkms status
 
 The GStreamer pipeline (`icamerasrc → videoconvert → v4l2sink`) runs continuously while the camera is active. Typical resource usage:
 
-- **720p (1280x720)**: ~3-5% CPU on a Core Ultra 7 165U
-- **1080p (1920x1080)**: ~5-8% CPU
+- **720p (1280×720)**: ~3-5% CPU on a Core Ultra 7 165U
+- **1080p (1920×1080)**: ~5-8% CPU
 
-To switch to 1080p, edit the resolution in `/etc/systemd/system/ipu6-camera-loopback.service` (change both `width` and `height` values) and restart the service:
-
-```bash
-sudo systemctl restart ipu6-camera-loopback
-```
+Use the tray utility to switch resolutions without editing config files.
 
 ## Uninstall
 
@@ -428,7 +445,12 @@ sudo rm -f /etc/firefox/syspref.js
 sudo rm -f /usr/lib/firefox/defaults/pref/firefox-pipewire-camera.js
 sudo udevadm control --reload-rules
 
-# 5. Reboot
+# 5. Remove tray utility
+sudo rm -f /usr/local/bin/ipu6-camera-tray
+rm -f ~/.local/share/applications/ipu6-camera-tray.desktop
+rm -f ~/.config/autostart/ipu6-camera-tray.desktop
+
+# 6. Reboot
 sudo reboot
 ```
 
@@ -461,6 +483,6 @@ If you've tested this on additional hardware, please open an issue or PR with yo
 
 ## License
 
-Setup scripts and configuration files: MIT
+MIT — Copyright (c) 2026 Achraf SOLTANI
 
 This project orchestrates components from Intel's open-source repositories, each with their own licences (GPL-2.0 for kernel modules, Apache-2.0 for Camera HAL, proprietary for camera-bins).
