@@ -259,7 +259,7 @@ ipu6-camera-tray
 
 ### Dependencies
 
-- `yad` (installed automatically by `setup.sh`)
+- `gir1.2-ayatanaappindicator3-0.1` and `python3-gi` (installed automatically by `setup.sh`)
 - `pkexec` (part of polkit, pre-installed on Ubuntu)
 
 ## Troubleshooting

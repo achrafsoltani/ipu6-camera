@@ -108,7 +108,8 @@ apt-get install -y -qq \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-good \
     gstreamer1.0-tools \
-    yad \
+    gir1.2-ayatanaappindicator3-0.1 \
+    python3-gi \
     > /dev/null
 
 log "Dependencies installed."
