@@ -319,6 +319,37 @@ To switch to 1080p, edit the resolution in `/etc/systemd/system/ipu6-camera-loop
 sudo systemctl restart ipu6-camera-loopback
 ```
 
+## Uninstall
+
+To fully reverse the setup:
+
+```bash
+# 1. Stop and disable the service
+sudo systemctl stop ipu6-camera-loopback
+sudo systemctl disable ipu6-camera-loopback
+sudo rm /etc/systemd/system/ipu6-camera-loopback.service
+sudo systemctl daemon-reload
+
+# 2. Remove DKMS modules
+sudo dkms remove ipu6-drivers/0.0.0 --all
+sudo dkms remove usbio/0.3 --all
+sudo rm -rf /usr/src/ipu6-drivers-0.0.0 /usr/src/usbio-0.3
+
+# 3. Remove Camera HAL and icamerasrc
+sudo rm -f /usr/lib/libcamhal.so*
+sudo rm -f /usr/lib/gstreamer-1.0/libgsticamerasrc.so
+
+# 4. Remove configuration
+sudo rm -f /etc/modules-load.d/ipu6-camera.conf
+sudo rm -f /etc/udev/rules.d/99-hide-ipu6-raw.rules
+sudo udevadm control --reload-rules
+
+# 5. Reboot
+sudo reboot
+```
+
+> **Note**: This does not remove the Camera HAL binaries (firmware, headers, static libraries) installed to `/lib/firmware/`, `/usr/lib/`, and `/usr/include/`. These are harmless to leave in place, but can be removed manually if desired.
+
 ## Upstream References
 
 - [intel/usbio-drivers](https://github.com/intel/usbio-drivers) — Lattice USB-IO bridge drivers
