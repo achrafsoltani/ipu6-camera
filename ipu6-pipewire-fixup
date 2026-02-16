@@ -1,0 +1,109 @@
+#!/bin/bash
+# =============================================================================
+# PipeWire Camera Fixup for IPU6 + v4l2loopback
+# =============================================================================
+#
+# Called by ExecStartPost in ipu6-camera-loopback.service after the GStreamer
+# pipeline starts writing frames to /dev/video99.
+#
+# This script does three things:
+#
+# 1. Creates a PipeWire V4L2 SPA node pointing at /dev/video99.
+#    - Uses spa-node-factory (not pipewiresink) so the node has
+#      port.physical=true and port.terminal=true — properties that the
+#      xdg-desktop-portal camera module requires to expose a device.
+#    - The node appears as "Integrated Camera" in WirePlumber's Video Sources.
+#
+# 2. Grants camera permission in the XDG portal permission store.
+#    - Without this, OpenPipeWireRemote() returns "Permission denied".
+#    - Grants to "" (default), "snap.firefox", "firefox", "snap.brave", "brave".
+#
+# 3. Restarts xdg-desktop-portal so it detects the new Video/Source node.
+#    - The portal caches node state; a restart forces re-enumeration.
+#
+# After this script runs, Firefox (with media.webrtc.camera.allow-pipewire=true)
+# and all Chromium-based browsers can access the camera.
+#
+# See: https://gitlab.freedesktop.org/pipewire/pipewire/-/issues/3659
+# =============================================================================
+
+set -u
+
+VIDEO_DEV="/dev/video99"
+NODE_NAME="ipu6-camera"
+NODE_DESC="Integrated-Camera"
+
+# ---------------------------------------------------------------------------
+# Find the active graphical session user
+# ---------------------------------------------------------------------------
+USER_UID=$(loginctl list-sessions --no-legend | awk '/seat0/{print $2; exit}')
+[ -z "$USER_UID" ] && { echo "No graphical session found"; exit 0; }
+
+USER_NAME=$(id -nu "$USER_UID" 2>/dev/null)
+[ -z "$USER_NAME" ] && exit 0
+
+export XDG_RUNTIME_DIR="/run/user/$USER_UID"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_UID/bus"
+
+run_as_user() {
+    su - "$USER_NAME" -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS $*"
+}
+
+# ---------------------------------------------------------------------------
+# Wait for the GStreamer pipeline to start writing frames
+# ---------------------------------------------------------------------------
+echo "[ipu6-pipewire-fixup] Waiting for v4l2loopback producer..."
+sleep 5
+
+if [ ! -e "$VIDEO_DEV" ]; then
+    echo "[ipu6-pipewire-fixup] $VIDEO_DEV not found, aborting"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Step 1: Create PipeWire V4L2 SPA node
+# ---------------------------------------------------------------------------
+echo "[ipu6-pipewire-fixup] Creating PipeWire V4L2 SPA node for $VIDEO_DEV..."
+
+# Check if node already exists
+EXISTING=$(run_as_user "pw-cli list-objects 2>/dev/null | grep -c '$NODE_NAME'" || true)
+if [ "${EXISTING:-0}" -gt 0 ]; then
+    echo "[ipu6-pipewire-fixup] Node '$NODE_NAME' already exists, skipping creation"
+else
+    run_as_user "pw-cli create-node spa-node-factory '{ factory.name=api.v4l2.source node.name=$NODE_NAME node.description=$NODE_DESC api.v4l2.path=$VIDEO_DEV media.class=Video/Source object.linger=true }'" \
+        && echo "[ipu6-pipewire-fixup] PipeWire V4L2 node created" \
+        || echo "[ipu6-pipewire-fixup] WARNING: Failed to create PipeWire node"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 2: Grant camera permission in XDG portal permission store
+# ---------------------------------------------------------------------------
+echo "[ipu6-pipewire-fixup] Granting camera portal permissions..."
+
+run_as_user "python3 -c \"
+import dbus
+bus = dbus.SessionBus()
+store = bus.get_object('org.freedesktop.impl.portal.PermissionStore',
+                       '/org/freedesktop/impl/portal/PermissionStore')
+iface = dbus.Interface(store, 'org.freedesktop.impl.portal.PermissionStore')
+for app_id in ['', 'snap.firefox', 'firefox', 'snap.brave', 'brave']:
+    iface.SetPermission('devices', True, 'camera', app_id, ['yes'])
+print('Camera permissions granted')
+\"" \
+    && echo "[ipu6-pipewire-fixup] Portal permissions set" \
+    || echo "[ipu6-pipewire-fixup] WARNING: Failed to set portal permissions"
+
+# ---------------------------------------------------------------------------
+# Step 3: Restart xdg-desktop-portal to detect the new node
+# ---------------------------------------------------------------------------
+echo "[ipu6-pipewire-fixup] Restarting xdg-desktop-portal..."
+
+run_as_user "systemctl --user restart xdg-desktop-portal" 2>/dev/null || true
+
+# Give portal time to restart and detect the node
+sleep 2
+
+# Verify
+IS_PRESENT=$(run_as_user "busctl --user get-property org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop org.freedesktop.portal.Camera IsCameraPresent 2>/dev/null" || true)
+echo "[ipu6-pipewire-fixup] IsCameraPresent: $IS_PRESENT"
+echo "[ipu6-pipewire-fixup] Done"

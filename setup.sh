@@ -14,7 +14,8 @@
 #   5. Builds & installs Intel Camera HAL (libcamhal)
 #   6. Builds & installs icamerasrc GStreamer plugin
 #   7. Installs v4l2loopback (DKMS)
-#   8. Configures systemd service, udev rules, and module auto-loading
+#   8. Configures Firefox PipeWire camera support (about:config pref)
+#   9. Configures systemd service, udev rules, and module auto-loading
 #
 # Usage:
 #   chmod +x setup.sh
@@ -343,7 +344,7 @@ fi
 # Step 7: Configure module auto-loading
 # ==============================================================================
 
-log "Step 7/8: Configuring kernel modules and udev rules..."
+log "Step 7/9: Configuring kernel modules and udev rules..."
 
 # Auto-load modules on boot
 cat > /etc/modules-load.d/ipu6-camera.conf << 'EOF'
@@ -369,10 +370,51 @@ udevadm control --reload-rules 2>/dev/null || true
 log "Module loading and udev rules configured."
 
 # ==============================================================================
-# Step 8: Install systemd service
+# Step 8: Configure Firefox PipeWire camera support
 # ==============================================================================
 
-log "Step 8/8: Installing systemd service..."
+log "Step 8/9: Configuring Firefox PipeWire camera support..."
+
+# Firefox does not use PipeWire for camera access by default.
+# This autoconfig pref enables it so Firefox Snap can use the camera
+# via the xdg-desktop-portal camera interface.
+
+# Firefox Snap autoconfig directory
+FIREFOX_SNAP_PREFS="/snap/firefox/current/usr/lib/firefox/defaults/pref"
+FIREFOX_SYSTEM_PREFS="/usr/lib/firefox/defaults/pref"
+FIREFOX_SNAP_AUTOCONFIG="/etc/firefox/syspref.js"
+
+# Install for system Firefox (deb)
+if [[ -d "${FIREFOX_SYSTEM_PREFS}" ]]; then
+    cp "${SCRIPT_DIR}/firefox-pipewire-camera.js" "${FIREFOX_SYSTEM_PREFS}/"
+    info "Firefox system pref installed to ${FIREFOX_SYSTEM_PREFS}/"
+fi
+
+# Install for Firefox Snap via /etc/firefox/syspref.js (snap reads this)
+mkdir -p /etc/firefox
+if [[ -f "${FIREFOX_SNAP_AUTOCONFIG}" ]]; then
+    if ! grep -q "media.webrtc.camera.allow-pipewire" "${FIREFOX_SNAP_AUTOCONFIG}"; then
+        cat "${SCRIPT_DIR}/firefox-pipewire-camera.js" >> "${FIREFOX_SNAP_AUTOCONFIG}"
+        info "Firefox Snap pref appended to ${FIREFOX_SNAP_AUTOCONFIG}"
+    else
+        info "Firefox Snap pref already present in ${FIREFOX_SNAP_AUTOCONFIG}"
+    fi
+else
+    cp "${SCRIPT_DIR}/firefox-pipewire-camera.js" "${FIREFOX_SNAP_AUTOCONFIG}"
+    info "Firefox Snap pref installed to ${FIREFOX_SNAP_AUTOCONFIG}"
+fi
+
+log "Firefox PipeWire camera support configured."
+
+# ==============================================================================
+# Step 9: Install systemd service
+# ==============================================================================
+
+log "Step 9/9: Installing systemd service..."
+
+# Install PipeWire fixup script (restarts WirePlumber so Firefox detects the camera)
+cp "${SCRIPT_DIR}/ipu6-pipewire-fixup" /usr/local/bin/ipu6-pipewire-fixup
+chmod +x /usr/local/bin/ipu6-pipewire-fixup
 
 cp "${SCRIPT_DIR}/ipu6-camera-loopback.service" /etc/systemd/system/ 2>/dev/null || \
 cat > /etc/systemd/system/ipu6-camera-loopback.service << 'EOF'
@@ -386,6 +428,7 @@ Type=simple
 Environment=GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0
 ExecStartPre=/sbin/modprobe v4l2loopback video_nr=99 card_label="Integrated Camera" exclusive_caps=1
 ExecStart=/usr/bin/gst-launch-1.0 -e icamerasrc buffer-count=7 ! video/x-raw,format=NV12,width=1280,height=720 ! videoconvert ! video/x-raw,format=YUY2,width=1280,height=720,framerate=30/1 ! identity drop-allocation=true ! v4l2sink device=/dev/video99 sync=false
+ExecStartPost=-/usr/local/bin/ipu6-pipewire-fixup
 Restart=on-failure
 RestartSec=5
 
@@ -410,17 +453,19 @@ echo ""
 echo "Next steps:"
 echo "  1. Reboot your machine"
 echo "  2. The camera will start automatically as 'Integrated Camera' on /dev/video99"
-echo "  3. Open a Chromium-based browser and test at https://webcamtests.com"
+echo "  3. Test at https://webcamtests.com in any browser (Firefox, Chrome, Brave, Edge)"
 echo ""
 echo "Manual start (without reboot):"
 echo "  sudo modprobe usbio gpio-usbio i2c-usbio intel-ipu6-psys"
 echo "  sudo systemctl start ipu6-camera-loopback"
 echo ""
+echo "Firefox note:"
+echo "  PipeWire camera support has been enabled automatically."
+echo "  If the camera doesn't appear in Firefox, verify about:config:"
+echo "    media.webrtc.camera.allow-pipewire = true"
+echo ""
 echo "Troubleshooting:"
 echo "  sudo systemctl status ipu6-camera-loopback"
 echo "  sudo journalctl -u ipu6-camera-loopback -f"
 echo "  dmesg | grep -iE 'ipu6|int3472|ov08|usbio'"
-echo ""
-echo "Note: Firefox Snap may not detect the camera due to sandbox limitations."
-echo "      Chromium-based browsers (Chrome, Brave, Edge) work correctly."
 echo ""

@@ -50,9 +50,13 @@ On mainline Linux kernels (6.10+), the IPU6 ISYS driver and camera sensor driver
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Browser / App (reads /dev/video99)                     │
+│  Firefox (PipeWire camera portal)                       │
+│  Chromium-based browsers (direct V4L2)                  │
 ├─────────────────────────────────────────────────────────┤
-│  v4l2loopback (virtual V4L2 device)                     │
+│  PipeWire V4L2 SPA node ←──── ipu6-pipewire-fixup      │
+│  (for Firefox / portal-based apps)                      │
+├─────────────────────────────────────────────────────────┤
+│  /dev/video99 — v4l2loopback (virtual V4L2 device)      │
 ├─────────────────────────────────────────────────────────┤
 │  GStreamer pipeline: icamerasrc → videoconvert → v4l2sink│
 ├─────────────────────────────────────────────────────────┤
@@ -81,7 +85,7 @@ sudo reboot
 
 After reboot, the camera appears as **"Integrated Camera"** on `/dev/video99`.
 
-Test it at [webcamtests.com](https://webcamtests.com) in Chrome, Brave, or Edge.
+Test it at [webcamtests.com](https://webcamtests.com) in **any browser** — Firefox, Chrome, Brave, or Edge.
 
 ## What the Setup Script Does
 
@@ -92,9 +96,11 @@ Test it at [webcamtests.com](https://webcamtests.com) in Chrome, Brave, or Edge.
 5. Builds [Intel Camera HAL](https://github.com/intel/ipu6-camera-hal) (`libcamhal`)
 6. Builds [icamerasrc](https://github.com/intel/icamerasrc) GStreamer plugin (branch: `icamerasrc_slim_api`)
 7. Installs `v4l2loopback-dkms` and configures it on `/dev/video99`
-8. Installs a systemd service (`ipu6-camera-loopback`) for automatic startup
-9. Configures udev rules to hide raw IPU6 nodes from applications
-10. Sets up module auto-loading (`/etc/modules-load.d/ipu6-camera.conf`)
+8. Configures Firefox PipeWire camera support (`media.webrtc.camera.allow-pipewire`)
+9. Installs a systemd service (`ipu6-camera-loopback`) for automatic startup
+10. Installs PipeWire fixup script (creates V4L2 SPA node + portal permissions)
+11. Configures udev rules to hide raw IPU6 nodes from applications
+12. Sets up module auto-loading (`/etc/modules-load.d/ipu6-camera.conf`)
 
 ## Manual Setup
 
@@ -208,6 +214,8 @@ The camera should now be visible in browsers as "Integrated Camera".
 | `setup.sh` | Automated setup script (run with `sudo`) |
 | `start-camera.sh` | Manual camera start script (run with `sudo`) |
 | `ipu6-camera-loopback.service` | systemd service for automatic startup |
+| `ipu6-pipewire-fixup` | PipeWire V4L2 node + portal permissions (runs after service starts) |
+| `firefox-pipewire-camera.js` | Firefox autoconfig pref to enable PipeWire camera |
 | `99-hide-ipu6-raw.rules` | udev rule to hide raw IPU6 nodes from apps |
 
 ## Troubleshooting
@@ -243,7 +251,36 @@ sudo setfacl -b /dev/video{0..47}
 
 ### Firefox doesn't detect the camera
 
-Firefox Snap uses a different device access path (XDG portal). This is a known limitation. Use a Chromium-based browser (Chrome, Brave, Edge) or install Firefox from the official `.deb` repository.
+Firefox Snap requires **PipeWire** for camera access (it cannot use V4L2 directly from the sandbox). The setup script configures this automatically, but if the camera still doesn't appear:
+
+1. **Check the Firefox about:config pref**:
+   - Open `about:config` in Firefox
+   - Search for `media.webrtc.camera.allow-pipewire`
+   - Set it to `true` if it isn't already
+   - Restart Firefox
+
+2. **Check the PipeWire V4L2 node exists**:
+   ```bash
+   wpctl status | grep -A5 "Video"
+   # Should show "Integrated-Camera" under Sources
+   ```
+
+3. **Check portal camera permission**:
+   ```bash
+   busctl --user get-property org.freedesktop.portal.Desktop \
+       /org/freedesktop/portal/desktop \
+       org.freedesktop.portal.Camera IsCameraPresent
+   # Should return: b true
+   ```
+
+4. **Re-run the PipeWire fixup manually**:
+   ```bash
+   sudo /usr/local/bin/ipu6-pipewire-fixup
+   ```
+
+5. **Restart Firefox completely** (close all windows, reopen).
+
+**How it works**: The `ipu6-pipewire-fixup` script creates a PipeWire V4L2 SPA node (via `pw-cli create-node spa-node-factory`) that points at `/dev/video99`. This node has `port.physical=true` and `port.terminal=true`, which are properties the XDG desktop portal requires to expose a camera device. The script also grants camera permission in the portal's permission store and restarts the portal daemon.
 
 ### Service fails to start
 
@@ -342,6 +379,9 @@ sudo rm -f /usr/lib/gstreamer-1.0/libgsticamerasrc.so
 # 4. Remove configuration
 sudo rm -f /etc/modules-load.d/ipu6-camera.conf
 sudo rm -f /etc/udev/rules.d/99-hide-ipu6-raw.rules
+sudo rm -f /usr/local/bin/ipu6-pipewire-fixup
+sudo rm -f /etc/firefox/syspref.js
+sudo rm -f /usr/lib/firefox/defaults/pref/firefox-pipewire-camera.js
 sudo udevadm control --reload-rules
 
 # 5. Reboot
