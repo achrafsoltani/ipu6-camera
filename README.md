@@ -350,6 +350,14 @@ sudo reboot
 
 > **Note**: This does not remove the Camera HAL binaries (firmware, headers, static libraries) installed to `/lib/firmware/`, `/usr/lib/`, and `/usr/include/`. These are harmless to leave in place, but can be removed manually if desired.
 
+## Tested On
+
+| Laptop | CPU | Sensor | Kernel | OS | Status |
+|--------|-----|--------|--------|----|--------|
+| Lenovo ThinkPad X1 Carbon Gen 12 | Core Ultra 7 165U | OV08F40 | 6.17.0-14-generic (HWE) | Ubuntu 24.04 LTS | Working |
+
+If you've tested this on other hardware, please open an issue or PR to add your configuration.
+
 ## Upstream References
 
 - [intel/usbio-drivers](https://github.com/intel/usbio-drivers) — Lattice USB-IO bridge drivers
