@@ -4,6 +4,13 @@ Enable the integrated camera on Intel Meteor Lake (14th Gen) laptops running Ubu
 
 This fixes the camera on devices where the sensor is connected via the **Lattice USB-IO bridge** (USB `2ac1:20c9`) and the **Intel IPU6** image processing unit — a combination that requires multiple out-of-tree drivers and the Intel Camera HAL userspace stack.
 
+## Requirements
+
+- **OS**: Ubuntu 24.04 LTS or Debian 12+ (other apt-based distros may work with adjustments)
+- **Kernel**: 6.10+ recommended (IPU6 ISYS and sensor drivers are in mainline). Older kernels need additional out-of-tree modules.
+- **Hardware**: Intel IPU6 (see [Supported IPU6 Variants](#supported-ipu6-variants)) with Lattice USB-IO bridge
+- **Packages**: `build-essential`, `cmake`, `dkms`, `git`, GStreamer dev libraries (installed automatically by `setup.sh`)
+
 ## Affected Hardware
 
 | Laptop | Sensor | IPU6 PCI | USB-IO Bridge |
