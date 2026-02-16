@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=IPU6 Camera
+GenericName=Camera Toggle
+Comment=Toggle the IPU6 camera on/off from the system tray
+Exec=ipu6-camera-tray
+Icon=camera-video
+Terminal=false
+Categories=Utility;System;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

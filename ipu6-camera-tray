@@ -1,0 +1,242 @@
+#!/bin/bash
+# ==============================================================================
+# IPU6 Camera Tray Toggle Utility
+# ==============================================================================
+#
+# System tray applet for toggling the IPU6 camera service on/off.
+# Uses yad --notification for the tray icon with a FIFO pipe for live updates.
+#
+# Dependencies: yad, systemctl, pkexec
+#
+# Usage:
+#   ipu6-camera-tray        (runs in background with tray icon)
+#
+# ==============================================================================
+
+set -uo pipefail
+
+SERVICE="ipu6-camera-loopback"
+FIFO="/tmp/ipu6-camera-tray-$$"
+SERVICE_FILE="/etc/systemd/system/${SERVICE}.service"
+
+# Icons: use themed icons (available on most GNOME/GTK desktops)
+ICON_ON="camera-video"
+ICON_OFF="camera-video-symbolic"
+
+# Ensure only one instance runs
+LOCK="/tmp/ipu6-camera-tray.lock"
+exec 9>"${LOCK}"
+if ! flock -n 9; then
+    notify-send "IPU6 Camera" "Tray utility is already running." -i "${ICON_ON}" 2>/dev/null
+    exit 0
+fi
+
+# Clean up on exit
+cleanup() {
+    rm -f "${FIFO}" "${LOCK}"
+    kill -- -$$ 2>/dev/null
+}
+trap cleanup EXIT
+
+# Create FIFO for yad communication
+mkfifo "${FIFO}"
+
+# ------------------------------------------------------------------------------
+# Helper functions
+# ------------------------------------------------------------------------------
+
+is_active() {
+    systemctl is-active --quiet "${SERVICE}"
+}
+
+get_current_resolution() {
+    if [[ -f "${SERVICE_FILE}" ]]; then
+        local width
+        width=$(grep -oP 'width=\K[0-9]+' "${SERVICE_FILE}" | head -1)
+        case "${width}" in
+            1920) echo "1080p (1920x1080)" ;;
+            *)    echo "720p (1280x720)" ;;
+        esac
+    else
+        echo "720p (1280x720)"
+    fi
+}
+
+is_enabled() {
+    systemctl is-enabled --quiet "${SERVICE}" 2>/dev/null
+}
+
+update_tray() {
+    if is_active; then
+        echo "icon:${ICON_ON}" > "${FIFO}"
+        echo "tooltip:IPU6 Camera — Active" > "${FIFO}"
+    else
+        echo "icon:${ICON_OFF}" > "${FIFO}"
+        echo "tooltip:IPU6 Camera — Inactive" > "${FIFO}"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Actions
+# ------------------------------------------------------------------------------
+
+toggle_camera() {
+    if is_active; then
+        pkexec systemctl stop "${SERVICE}"
+    else
+        pkexec systemctl start "${SERVICE}"
+    fi
+    sleep 1
+    update_tray
+}
+
+show_settings() {
+    local current_res
+    current_res=$(get_current_resolution)
+
+    local res_index=0
+    [[ "${current_res}" == *"1080"* ]] && res_index=1
+
+    local autostart="FALSE"
+    is_enabled && autostart="TRUE"
+
+    local result
+    result=$(yad --form \
+        --title="IPU6 Camera Settings" \
+        --window-icon="${ICON_ON}" \
+        --width=380 \
+        --field="Resolution:CB" "720p (1280x720)!1080p (1920x1080)" \
+        --field="Auto-start on boot:CHK" "${autostart}" \
+        2>/dev/null)
+
+    [[ -z "${result}" ]] && return
+
+    local new_res new_autostart
+    new_res=$(echo "${result}" | cut -d'|' -f1)
+    new_autostart=$(echo "${result}" | cut -d'|' -f2)
+
+    # Handle resolution change
+    local new_width new_height
+    if [[ "${new_res}" == *"1080"* ]]; then
+        new_width=1920
+        new_height=1080
+    else
+        new_width=1280
+        new_height=720
+    fi
+
+    local current_width
+    current_width=$(grep -oP 'width=\K[0-9]+' "${SERVICE_FILE}" 2>/dev/null | head -1)
+    current_width="${current_width:-1280}"
+
+    if [[ "${new_width}" != "${current_width}" ]]; then
+        # Build sed command to replace resolution in the service file
+        local sed_cmd="s/width=[0-9]\\+,height=[0-9]\\+/width=${new_width},height=${new_height}/g"
+        pkexec bash -c "sed -i '${sed_cmd}' '${SERVICE_FILE}' && systemctl daemon-reload"
+
+        if is_active; then
+            pkexec systemctl restart "${SERVICE}"
+            sleep 1
+            update_tray
+        fi
+
+        notify-send "IPU6 Camera" "Resolution changed to ${new_width}x${new_height}." -i "${ICON_ON}" 2>/dev/null
+    fi
+
+    # Handle auto-start toggle
+    if [[ "${new_autostart}" == "TRUE" ]] && ! is_enabled; then
+        pkexec systemctl enable "${SERVICE}"
+        notify-send "IPU6 Camera" "Auto-start enabled." -i "${ICON_ON}" 2>/dev/null
+    elif [[ "${new_autostart}" == "FALSE" ]] && is_enabled; then
+        pkexec systemctl disable "${SERVICE}"
+        notify-send "IPU6 Camera" "Auto-start disabled." -i "${ICON_ON}" 2>/dev/null
+    fi
+}
+
+show_status() {
+    local status_text=""
+
+    # Service status
+    local svc_status
+    svc_status=$(systemctl is-active "${SERVICE}" 2>/dev/null || true)
+    status_text+="Service: ${svc_status}\n"
+
+    # Auto-start
+    local enabled_status
+    enabled_status=$(systemctl is-enabled "${SERVICE}" 2>/dev/null || true)
+    status_text+="Auto-start: ${enabled_status}\n"
+
+    # Resolution
+    status_text+="Resolution: $(get_current_resolution)\n"
+    status_text+="\n"
+
+    # PipeWire video info
+    status_text+="--- PipeWire Video ---\n"
+    local pw_info
+    pw_info=$(wpctl status 2>/dev/null | grep -A8 "Video" || echo "(wpctl not available)")
+    status_text+="${pw_info}\n\n"
+
+    # Portal camera status
+    status_text+="--- Camera Portal ---\n"
+    local portal_status
+    portal_status=$(busctl --user get-property org.freedesktop.portal.Desktop \
+        /org/freedesktop/portal/desktop \
+        org.freedesktop.portal.Camera IsCameraPresent 2>/dev/null || echo "(portal not available)")
+    status_text+="IsCameraPresent: ${portal_status}\n"
+
+    echo -e "${status_text}" | yad --text-info \
+        --title="IPU6 Camera Status" \
+        --window-icon="${ICON_ON}" \
+        --width=500 --height=400 \
+        --button="Close:0" \
+        2>/dev/null
+}
+
+# ------------------------------------------------------------------------------
+# Menu handler (called by yad on menu item selection)
+# ------------------------------------------------------------------------------
+
+handle_menu() {
+    case "$1" in
+        toggle)   toggle_camera ;;
+        settings) show_settings ;;
+        status)   show_status ;;
+        quit)     exit 0 ;;
+    esac
+}
+export -f handle_menu toggle_camera show_settings show_status
+export -f is_active get_current_resolution is_enabled update_tray
+export SERVICE SERVICE_FILE FIFO ICON_ON ICON_OFF
+
+# ------------------------------------------------------------------------------
+# Main: launch tray icon
+# ------------------------------------------------------------------------------
+
+# Determine initial state
+if is_active; then
+    INIT_ICON="${ICON_ON}"
+    INIT_TOOLTIP="IPU6 Camera — Active"
+else
+    INIT_ICON="${ICON_OFF}"
+    INIT_TOOLTIP="IPU6 Camera — Inactive"
+fi
+
+# Launch yad notification icon (reads commands from FIFO)
+exec 3<>"${FIFO}"
+yad --notification \
+    --listen \
+    --image="${INIT_ICON}" \
+    --text="${INIT_TOOLTIP}" \
+    --command="bash -c 'handle_menu toggle'" \
+    --menu="Toggle Camera!bash -c 'handle_menu toggle'|\
+Settings...!bash -c 'handle_menu settings'|\
+Status...!bash -c 'handle_menu status'||\
+Quit!bash -c 'handle_menu quit'" \
+    <&3 &
+YAD_PID=$!
+
+# Background loop: poll service status and update icon every 5 seconds
+while kill -0 "${YAD_PID}" 2>/dev/null; do
+    update_tray
+    sleep 5
+done
