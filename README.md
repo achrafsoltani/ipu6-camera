@@ -306,6 +306,19 @@ dkms status
 # ipu6-drivers/0.0.0, 6.17.0-14-generic, x86_64: installed
 ```
 
+## Performance
+
+The GStreamer pipeline (`icamerasrc → videoconvert → v4l2sink`) runs continuously while the camera is active. Typical resource usage:
+
+- **720p (1280x720)**: ~3-5% CPU on a Core Ultra 7 165U
+- **1080p (1920x1080)**: ~5-8% CPU
+
+To switch to 1080p, edit the resolution in `/etc/systemd/system/ipu6-camera-loopback.service` (change both `width` and `height` values) and restart the service:
+
+```bash
+sudo systemctl restart ipu6-camera-loopback
+```
+
 ## Upstream References
 
 - [intel/usbio-drivers](https://github.com/intel/usbio-drivers) — Lattice USB-IO bridge drivers
